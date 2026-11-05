@@ -29,13 +29,14 @@ dsh plugin --profile <name> add dsh-bao
 
 **从插件市场索引安装（Discover 页）**
 
-本仓库自带一份 [插件市场索引](./market-index.json)（官方 format 1）。在 DSH 的插件市场索引设置里添加：
+本仓库自带一份 [插件市场索引](./market-index.json)（官方 format 1）。在 DSH 的插件市场索引设置里添加（任选其一）：
 
 ```
 https://raw.githubusercontent.com/milestone-17/dsh-bao/master/market-index.json
+https://ghproxy.net/https://raw.githubusercontent.com/milestone-17/dsh-bao/master/market-index.json
 ```
 
-之后 Discover 页即可搜索「DSH 宝」并一键安装（安装走 GitHub，pin 到发布 commit）。
+第二个地址经 ghproxy.net 镜像，国内网络实测可达（已验证返回合法索引）。之后 Discover 页即可搜索「DSH 宝」并一键安装（安装走 GitHub，pin 到发布 commit；git 克隆通道可用 `https://gitclone.com/github.com/milestone-17/dsh-bao` 镜像加速）。
 
 **从源码（本目录）安装**
 
