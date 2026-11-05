@@ -19,6 +19,11 @@ A TRAE-宝-style personal assistant for [DeepSeek Harness](https://github.com/de
 - **记忆注入**：注册为 system-prompt 的动态 runtime context（`interpolate: false`），每次模型请求前重新求值——刚记下的笔记下一步就生效；选用 context 而非 section，是为了与 `complete: true` 的预设人设共存（complete section 会替换全部 section，但 context 永远渲染）。
 - **助理预设**：bundle 同时声明 `@deepseek-ai/dsh-agent-preset` 行（id `aibao`），插件清单对齐官方 `standard` 预设，人设来自 `dsh-persona`。
 
+## 更新日志
+
+- **0.2.1** — 修复：aibao 预设缺 `tool-fs-search` 必填配置（`sampleOverCapGlobResults`），导致「和宝聊聊」建会话失败（浏览器端 E2E 发现）。
+- **0.2.0** — 首个公开版本：长期记忆、DSH 宝预设、面板、每日简报、桌面通知、状态速览。
+
 ## 安装
 
 **桌面端 / Web（推荐，插件市场命令）**

@@ -1,6 +1,6 @@
 {
   "name": "dsh-bao",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "DSH 宝 — TRAE 宝式的个人助理：长期记忆（跨会话注入）、专属助理预设、定时进度汇总、桌面通知与工作状态速览面板。",
   "icon": "./icon.svg",
   "type": "module",
