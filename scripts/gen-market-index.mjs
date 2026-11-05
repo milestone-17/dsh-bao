@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
-const commit = "abd7c674d2be45cc66f9b29fee62880920420452";
+const commit = "69abd474c5be9e9b2e0527dcf9fd921f4cb6ea32";
 const iconB64 = readFileSync("D:/workspace/dsh-bao/icon.svg").toString("base64");
 
 const index = {
@@ -33,12 +33,22 @@ const index = {
 			},
 			versions: [
 				{
-					version: "0.2.1",
+					version: "0.2.2",
 					publishTimestamp: Math.floor(Date.now() / 1000),
 					source: {
 						type: "git",
 						url: "https://github.com/milestone-17/dsh-bao",
 						commit
+					},
+					engines: { dsh: ">=0.2.1-rc.2" }
+				},
+				{
+					version: "0.2.1",
+					publishTimestamp: Math.floor(Date.now() / 1000) - 1200,
+					source: {
+						type: "git",
+						url: "https://github.com/milestone-17/dsh-bao",
+						commit: "abd7c674d2be45cc66f9b29fee62880920420452"
 					},
 					engines: { dsh: ">=0.2.1-rc.2" }
 				},
