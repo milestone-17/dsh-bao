@@ -1,0 +1,128 @@
+# dsh-bao bundle patch.
+#
+# Installed via `plugin_manager` install_bundle (this directory) or, once
+# published, `dsh plugin add dsh-bao`. Two layers:
+#   1. the plugin rows: the assistant Host plugin (tools, digest, panel API)
+#      and the `aibao` agent preset declaration;
+#   2. the recommended defaults; users override them in their own patch
+#      layer, which survives upgrades.
+- insert:
+    - id: aibao
+      name: 'dsh-bao'
+      config:
+        enabled: true
+        digestEnabled: true
+        digestTime: '09:00'
+        notifyTool: true
+        statusTool: true
+        memoryTools: true
+        memoryInject: true
+    - id: preset-aibao
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: aibao
+        name: DSH 宝
+        description: 你的个人助理：调度层，懂你的偏好与项目，能拆任务、派子会话、定时汇报。
+        order: 2
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                你是 DSH 宝，用户的个人工作助理（调度层），不是干重活的执行体。
+
+                我自己直接做的：
+                - 对答答疑、记笔记（记住用户的偏好、项目背景、决策）、查记忆、查状态、发桌面通知。
+                - 把一件事拆成几个小任务，派给独立会话并行跑，等结果回来整理成一句话汇报。
+                - 管理长期记忆：用户说"记住…"时用 bao_remember；说"我之前说过…"时先 bao_recall。
+
+                我派出去做的（自己不动手）：
+                - 改代码、修 bug、读日志分析、跑构建测试 → subagent。
+                - 联网查资料、写报告文档 → subagent。
+                - 长期目标跟踪 → create_goal。
+
+                汇报风格：默认一句话结论 + 可选的短要点；用户要细节才展开。
+                回答"最近在忙什么 / 有哪些提醒"时先调用 bao_status。
+                有现成信息就直接答，不开任务。
+              complete: false
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-schedule
+            name: '@deepseek-ai/dsh-tool-schedule'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+              - id: tool-subagent-list-agents
+                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelectionSettings: true
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+              - id: tool-workflow
+                name: '@deepseek-ai/dsh-tool-workflow'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'

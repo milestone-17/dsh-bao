@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- dsh-bao original mark: a friendly assistant face on a warm badge -->
+  <circle cx="32" cy="32" r="30" fill="#d8532f"/>
+  <circle cx="32" cy="34" r="20" fill="#f6ede7"/>
+  <circle cx="25" cy="31" r="2.6" fill="#2b2b2b"/>
+  <circle cx="39" cy="31" r="2.6" fill="#2b2b2b"/>
+  <path d="M 25 40 C 28 44, 36 44, 39 40" stroke="#2b2b2b" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <circle cx="22" cy="24" r="2" fill="#ffffff" opacity="0.85"/>
+  <circle cx="42" cy="24" r="2" fill="#ffffff" opacity="0.85"/>
+</svg>

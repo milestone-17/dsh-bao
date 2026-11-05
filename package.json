@@ -1,0 +1,74 @@
+{
+  "name": "dsh-bao",
+  "version": "0.2.0",
+  "description": "DSH 宝 — TRAE 宝式的个人助理：长期记忆（跨会话注入）、专属助理预设、定时进度汇总、桌面通知与工作状态速览面板。",
+  "icon": "./icon.svg",
+  "type": "module",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "assistant",
+    "memory",
+    "agent-preset",
+    "digest",
+    "notification",
+    "schedule"
+  ],
+  "homepage": "https://github.com/milestone-17/dsh-bao#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/milestone-17/dsh-bao.git"
+  },
+  "bugs": {
+    "url": "https://github.com/milestone-17/dsh-bao/issues"
+  },
+  "author": {
+    "name": "LuoBiao (milestone-17)",
+    "url": "https://github.com/milestone-17"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "memory.js",
+    "delivery.js",
+    "toast.ps1",
+    "client.js",
+    "preset.patch.yml",
+    "cordis.patch.yml",
+    "locale/en.json",
+    "locale/zh.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  }
+}
