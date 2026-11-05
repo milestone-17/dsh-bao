@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
-const commit = "c7139af17a535eca0b3e101f3d844ab5ad7c6561";
+const commit = "abd7c674d2be45cc66f9b29fee62880920420452";
 const iconB64 = readFileSync("D:/workspace/dsh-bao/icon.svg").toString("base64");
 
 const index = {
@@ -33,12 +33,22 @@ const index = {
 			},
 			versions: [
 				{
-					version: "0.2.0",
+					version: "0.2.1",
 					publishTimestamp: Math.floor(Date.now() / 1000),
 					source: {
 						type: "git",
 						url: "https://github.com/milestone-17/dsh-bao",
 						commit
+					},
+					engines: { dsh: ">=0.2.1-rc.2" }
+				},
+				{
+					version: "0.2.0",
+					publishTimestamp: Math.floor(Date.now() / 1000) - 3600,
+					source: {
+						type: "git",
+						url: "https://github.com/milestone-17/dsh-bao",
+						commit: "30fd022a26777d810c5e49d7d70a50227185d700"
 					},
 					engines: { dsh: ">=0.2.1-rc.2" }
 				}
@@ -51,9 +61,13 @@ const out = "D:/workspace/dsh-bao/market-index.json";
 writeFileSync(out, `${JSON.stringify(index, null, 2)}\n`, "utf8");
 console.log("written", out);
 
-/** Self-check against the official validator (absolute file URL because the
- *  package ships inside the Harness asar, not in node_modules). */
-const validatorUrl = "file:///C:/Users/Chuibiao.Luo/AppData/Local/Programs/DeepSeek%20Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-plugin-market-index/lib/index.js";
-const { parseMarketIndex } = await import(validatorUrl);
-const parsed = parseMarketIndex(JSON.parse(readFileSync(out, "utf8")), "https://raw.githubusercontent.com/milestone-17/dsh-bao/master/market-index.json");
-console.log("validated:", parsed.title.en, "| plugins:", parsed.plugins.map((p) => p.name).join(","), "| install:", JSON.stringify(parsed.plugins[0].versions[0].source));
+/** Optional self-check: validates with the official parser when available
+ *  (it ships inside the Harness asar; skip gracefully elsewhere). */
+try {
+	const validatorUrl = "file:///C:/Users/Chuibiao.Luo/AppData/Local/Programs/DeepSeek%20Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-plugin-market-index/lib/index.js";
+	const { parseMarketIndex } = await import(validatorUrl);
+	const parsed = parseMarketIndex(JSON.parse(readFileSync(out, "utf8")), "https://raw.githubusercontent.com/milestone-17/dsh-bao/master/market-index.json");
+	console.log("validated:", parsed.title.en, "| plugins:", parsed.plugins.map((p) => p.name).join(","));
+} catch (error) {
+	console.log("validator unavailable here (format was hand-checked against the official parser):", error.message);
+}

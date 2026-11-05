@@ -48,12 +48,24 @@
       },
       "versions": [
         {
-          "version": "0.2.0",
-          "publishTimestamp": 1793849275,
+          "version": "0.2.1",
+          "publishTimestamp": 1793851058,
           "source": {
             "type": "git",
             "url": "https://github.com/milestone-17/dsh-bao",
-            "commit": "c7139af17a535eca0b3e101f3d844ab5ad7c6561"
+            "commit": "abd7c674d2be45cc66f9b29fee62880920420452"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.2"
+          }
+        },
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1793847458,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/milestone-17/dsh-bao",
+            "commit": "30fd022a26777d810c5e49d7d70a50227185d700"
           },
           "engines": {
             "dsh": ">=0.2.1-rc.2"
