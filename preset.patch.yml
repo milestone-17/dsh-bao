@@ -102,6 +102,10 @@
                 config:
                   provider: fork
                   toolName: subagent_fork
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
+                config:
+                  provider: spawn
               - id: tool-workflow
                 name: '@deepseek-ai/dsh-tool-workflow'
           - id: tool-ask-user

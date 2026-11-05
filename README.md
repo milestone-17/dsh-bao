@@ -21,6 +21,7 @@ A TRAE-宝-style personal assistant for [DeepSeek Harness](https://github.com/de
 
 ## 更新日志
 
+- **0.2.2** — 修复：aibao 预设 delegation 组缺 `workflow-ptc`（提供 workflowEngine 服务），tool-workflow 永久等待导致建会话失败（浏览器端 E2E 发现）。
 - **0.2.1** — 修复：aibao 预设缺 `tool-fs-search` 必填配置（`sampleOverCapGlobResults`），导致「和宝聊聊」建会话失败（浏览器端 E2E 发现）。
 - **0.2.0** — 首个公开版本：长期记忆、DSH 宝预设、面板、每日简报、桌面通知、状态速览。
 
