@@ -286,7 +286,7 @@ function writeJson(res, value, status = 200) {
  * @param {object} options - resolved options.
  * @returns {Promise<object>} the overview document.
  */
-async function collectOverview(ctx, options) {
+async function collectOverview(ctx, options, memory, log) {
 	const now = Date.now();
 
 	/** Read every durable schedule task through the shared schedule service. */
@@ -345,7 +345,8 @@ async function collectOverview(ctx, options) {
 			count: notes.length,
 			latest: notes.slice(0, 5).map((note) => ({ id: note.id, category: note.category, text: truncate(note.text, 60) }))
 		};
-	} catch {
+	} catch (error) {
+		log("overview memory read failed: ${error instanceof Error ? error.message : String(error)}");
 		memorySummary = { count: 0, latest: [] };
 	}
 
@@ -427,14 +428,14 @@ export function apply(ctx, config) {
 	let cache = { at: 0, value: undefined, pending: undefined };
 	const overview = async () => {
 		if (cache.value !== undefined && Date.now() - cache.at < 15000) return cache.value;
-		cache.pending ??= collectOverview(ctx, options)
+		cache.pending ??= collectOverview(ctx, options, memory, log)
 			.then((value) => {
 				cache = { at: Date.now(), value, pending: undefined };
 				return value;
 			})
 			.catch(() => {
 				cache.pending = undefined;
-				return collectOverview(ctx, options);
+				return collectOverview(ctx, options, memory, log);
 			});
 		return cache.pending;
 	};
@@ -476,7 +477,7 @@ export function apply(ctx, config) {
 		log(`digest scheduled at ${options.digestTime} (${Math.round(fireAt - Date.now())}ms from now)`);
 		const fire = async () => {
 			try {
-				const value = await collectOverview(ctx, options);
+				const value = await collectOverview(ctx, options, memory, log);
 				const notification = composeDigest(value, options);
 				const channel = await deliver(notification, options, log);
 				log(`digest delivered through ${channel}`);
