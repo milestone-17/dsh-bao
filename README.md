@@ -11,9 +11,11 @@ A TRAE-宝-style personal assistant for [DeepSeek Harness](https://github.com/de
 | 能力 | 说明 |
 | --- | --- |
 | 🧠 长期记忆 | `bao_remember` / `bao_recall` / `bao_forget` 三个工具 + 每次请求自动注入的「主人的长期记忆」上下文，跨会话记住你的偏好、项目事实与决策 |
+| 🤖 自动候选记忆 | `bao_extract_memory` 工具：AI 自动从对话中提取值得保留的信息，推入「候选记忆」等你一键确认；确认后进入正式长期记忆 |
+| 🚀 首次启动引导 | 安装后自动写入一条示例记忆并弹出欢迎通知，60 秒内让新用户感知价值 |
 | 💬 专属助理预设 | 安装即上架「DSH 宝」Agent 预设（会话新建处可选）：调度层人设——自己答问、记事、查状态，重活派 subagent；面板一键「和宝聊聊」直接开局 |
-| ☕ 每日简报 | 每天固定本地时间（默认 09:00），把「活跃定时任务 + 最近推进的会话」汇总成一条桌面通知（默认可配） |
-| 🔔 助手主动通知 | `bao_notify` 工具：模型可以以助理身份弹系统通知（定时汇总、需要你决策时） |
+| ☕ 每日简报 | 每天固定本地时间（默认 09:00），把「活跃定时任务 + 最近推进的会话 + 候选记忆」汇总成一条桌面通知（默认可配） |
+| 🔔 助手主动通知 | `bao_notify` 工具：模型可以以助理身份弹系统通知（定时汇总、发现候选记忆、需要你决策时） |
 | 📊 状态速览 | `bao_status` 工具：模型一句话回答「最近在忙什么 / 有哪些提醒待办」 |
 | 🗂 侧边栏面板 | 新增「DSH 宝」面板：长期记忆、定时任务、最近会话、简报开关一目了然，30 秒自动刷新 |
 
@@ -25,6 +27,8 @@ A TRAE-宝-style personal assistant for [DeepSeek Harness](https://github.com/de
 
 ## 更新日志
 
+- **0.2.4** — 新增：首次启动引导（自动写入示例记忆 + 欢迎通知）；新增 `bao_extract_memory` / `bao_confirm_memory` / `bao_ignore_memory` 工具，支持自动提取候选记忆并在面板中确认/忽略；候选记忆持久化到插件状态文件，重启不丢失。
+- **0.2.3** — 修复：`collectOverview` 无法访问 `memory` 导致的长期记忆卡片为空问题（修复 #1）。
 - **0.2.2** — 修复：aibao 预设 delegation 组缺 `workflow-ptc`（提供 workflowEngine 服务），tool-workflow 永久等待导致建会话失败（浏览器端 E2E 发现）。
 - **0.2.1** — 修复：aibao 预设缺 `tool-fs-search` 必填配置（`sampleOverCapGlobResults`），导致「和宝聊聊」建会话失败（浏览器端 E2E 发现）。
 - **0.2.0** — 首个公开版本：长期记忆、DSH 宝预设、面板、每日简报、桌面通知、状态速览。
@@ -76,6 +80,9 @@ https://ghproxy.net/https://raw.githubusercontent.com/milestone-17/dsh-bao/maste
 | `notifyTool` | `true` | 是否注册 `bao_notify` 工具 |
 | `statusTool` | `true` | 是否注册 `bao_status` 工具 |
 | `memoryTools` | `true` | 是否注册 `bao_remember` / `bao_recall` / `bao_forget` 记忆工具 |
+| `autoExtractMemory` | `true` | 是否启用自动候选记忆提取 |
+| `onboardingEnabled` | `true` | 是否启用首次启动引导 |
+| `pendingMemoryMax` | `20` | 最多保留多少条候选记忆 |
 | `memoryInject` | `true` | 是否把长期记忆作为运行时上下文注入每次请求 |
 | `memoryInjectLimit` | `30` | 注入上下文里最多引用几条笔记 |
 | `memoryNoteMaxChars` | `200` | 注入时单条笔记的最大字符数 |
@@ -98,7 +105,16 @@ macOS / Linux 目前走 Electron 通道；纯 Node Host 上暂无额外通道（
 
 ## 面板数据路由
 
-`GET/POST /bao/api/overview` 返回速览 JSON。路由带与官方插件一致的信任围栏：仅 loopback（`localhost`/`[::1]`/`127/8`）或 `trustedHosts` 命中的 Host、拒绝 `cross-site` 请求、Origin 必须是监听器自身。路由**只读**：读 `schedule` 服务的目录与 `sessionTitle` 的会话行，不写任何状态，也不激活会话。
+路由前缀默认 `/bao/api`，带与官方插件一致的信任围栏：仅 loopback（`localhost`/`[::1]`/`127/8`）或 `trustedHosts` 命中的 Host、拒绝 `cross-site` 请求、Origin 必须是监听器自身。
+
+| 端点 | 方法 | 说明 |
+| --- | --- | --- |
+| `/bao/api/overview` | GET | 返回速览 JSON（定时任务、最近会话、长期记忆、候选记忆） |
+| `/bao/api/pending-memories` | GET | 返回候选记忆列表 |
+| `/bao/api/confirm-pending` | POST | 确认一条候选记忆，`body: { id }` |
+| `/bao/api/ignore-pending` | POST | 忽略一条候选记忆，`body: { id }` |
+
+路由读取 `schedule` 服务目录与 `sessionTitle` 会话行，不写状态、不激活会话；确认/忽略候选记忆会更新插件状态文件。
 
 ## 与内置能力的分工
 
