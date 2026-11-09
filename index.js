@@ -15,11 +15,19 @@
  *     page: next reminders, last digest, quick facts. The panel reads from a
  *     small loopback-fenced JSON route registered by this Host half.
  *
+ * v0.2.4 adds:
+ *  - Onboarding: first-time users get a sample memory and a welcome toast.
+ *  - Auto-extract: the assistant can propose candidate memories from a
+ *    conversation; users confirm or ignore them through the panel or tools.
+ *
  * Everything the model could otherwise only reach through interactive tools
  * (`schedule_create`, `notify_user`, …) stays untouched: this bundle only
  * *reads* durable state and delivers notifications.
  */
 
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 import { deliver } from "./delivery.js";
 import { openMemory, NOTE_CATEGORIES } from "./memory.js";
 
@@ -35,20 +43,26 @@ const DEFAULTS = {
 	notifyTool: true,
 	/** Register the `bao_status` tool. */
 	statusTool: true,
+	/** Register memory management tools. */
+	memoryTools: true,
+	/** Propose candidate memories automatically after relevant conversations. */
+	autoExtractMemory: true,
+	/** Run the first-time onboarding flow. */
+	onboardingEnabled: true,
 	/** How many recently-updated sessions the overview mentions. */
 	sessionWindowCount: 5,
 	/** How far back "recent" reaches, in milliseconds. */
 	sessionWindowMs: 26 * 60 * 60 * 1000,
 	/** Maximum characters of one overview line. */
 	maxLineLength: 90,
+	/** Maximum pending candidate memories kept before eviction. */
+	pendingMemoryMax: 20,
 	/** Play the system notification sound. */
 	sound: true,
 	/** Start Menu identity used for the Windows toast. */
 	appUserModelId: "com.deepseek.dsh",
 	/** Route prefix registered on the Host web server. */
 	routePath: "/bao/api",
-	/** Long-term memory: expose the remember/recall/forget tools. */
-	memoryTools: true,
 	/** Long-term memory: inject a recall section into every agent's context. */
 	memoryInject: true,
 	/** Maximum notes quoted in one injected recall section. */
@@ -101,6 +115,44 @@ function truncate(text, maxLength) {
 	const collapsed = String(text).replace(/\s+/g, " ").trim();
 	if (collapsed.length <= maxLength) return collapsed;
 	return `${collapsed.slice(0, Math.max(1, maxLength - 1))}…`;
+}
+
+/**
+ * Resolve the plugin state file path.
+ * @param {object} ctx - the plugin context.
+ * @returns {string} the absolute file path.
+ */
+function statePath(ctx) {
+	const home = typeof ctx.dshHomePath === "function" ? ctx.dshHomePath() : process.env.DSH_HOME ?? process.cwd();
+	return `${home}/bao/state.json`;
+}
+
+/**
+ * Load the plugin state object.
+ * @param {object} ctx - the plugin context.
+ * @returns {Promise<object>} the state.
+ */
+async function loadState(ctx) {
+	try {
+		const text = await readFile(statePath(ctx), "utf8");
+		const parsed = JSON.parse(text);
+		if (parsed !== null && typeof parsed === "object") return parsed;
+	} catch {
+		// Missing or corrupt state starts fresh.
+	}
+	return { onboarded: false };
+}
+
+/**
+ * Save the plugin state object.
+ * @param {object} ctx - the plugin context.
+ * @param {object} state - the state to persist.
+ * @returns {Promise<void>}
+ */
+async function saveState(ctx, state) {
+	const path = statePath(ctx);
+	await mkdir(dirname(path), { recursive: true });
+	await writeFile(path, JSON.stringify(state, null, 2), "utf8");
 }
 
 /**
@@ -284,9 +336,12 @@ function writeJson(res, value, status = 200) {
  * route all share.
  * @param {object} ctx - the plugin context.
  * @param {object} options - resolved options.
+ * @param {object} memory - the long-term memory facade.
+ * @param {(message: string) => void} log - diagnostic sink.
+ * @param {object[]} pendingCandidates - pending memory proposals.
  * @returns {Promise<object>} the overview document.
  */
-async function collectOverview(ctx, options, memory, log) {
+async function collectOverview(ctx, options, memory, log, pendingCandidates) {
 	const now = Date.now();
 
 	/** Read every durable schedule task through the shared schedule service. */
@@ -346,7 +401,7 @@ async function collectOverview(ctx, options, memory, log) {
 			latest: notes.slice(0, 5).map((note) => ({ id: note.id, category: note.category, text: truncate(note.text, 60) }))
 		};
 	} catch (error) {
-		log("overview memory read failed: ${error instanceof Error ? error.message : String(error)}");
+		log(`overview memory read failed: ${error instanceof Error ? error.message : String(error)}`);
 		memorySummary = { count: 0, latest: [] };
 	}
 
@@ -357,7 +412,8 @@ async function collectOverview(ctx, options, memory, log) {
 		digest: { enabled: options.digestEnabled, time: options.digestTime },
 		schedules: { activeCount: active.length, active: active.slice(0, 20) },
 		recentSessions: sessions,
-		memory: memorySummary
+		memory: memorySummary,
+		pendingMemories: pendingCandidates.slice(0, 10).map((c) => ({ id: c.id, category: c.category, text: truncate(c.text, 80), createdAt: c.createdAt }))
 	};
 }
 
@@ -380,6 +436,9 @@ function composeDigest(overview, options) {
 		const names = overview.recentSessions.slice(0, 3).map((row) => truncate(row.title, 40)).join("、");
 		lines.push(`💬 最近推进：${names}`);
 	}
+	if (overview.pendingMemories.length > 0) {
+		lines.push(`🧠 有 ${overview.pendingMemories.length} 条候选记忆等你确认`);
+	}
 	if (lines.length === 0) lines.push("一切安静，今天也从一句需求开始。");
 	return { title: "☕ 早安，这是今天的工作简报", body: lines.join("\n") };
 }
@@ -399,6 +458,36 @@ export function apply(ctx, config) {
 
 	/** The long-term memory facade (durable JSON under the Host home). */
 	const memory = openMemory(ctx);
+
+	/** Pending candidate memories proposed by the assistant for user confirmation. */
+	/** @type {object[]} */
+	let pendingCandidates = [];
+
+	/** Load persisted plugin state (onboarding flag + pending candidates). */
+	const initState = async () => {
+		try {
+			const state = await loadState(ctx);
+			if (Array.isArray(state.pendingCandidates)) {
+				pendingCandidates = state.pendingCandidates.filter((c) => c !== null && typeof c === "object" && typeof c.id === "string" && typeof c.text === "string");
+			}
+			return state;
+		} catch (error) {
+			log(`state load failed: ${error instanceof Error ? error.message : String(error)}`);
+			return { onboarded: false };
+		}
+	};
+
+	/** Persist plugin state (onboarding flag + pending candidates). */
+	const persistState = async (patch = {}) => {
+		try {
+			const state = await loadState(ctx);
+			state.onboarded = patch.onboarded ?? state.onboarded ?? false;
+			if (Array.isArray(pendingCandidates)) state.pendingCandidates = pendingCandidates;
+			await saveState(ctx, state);
+		} catch (error) {
+			log(`state save failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	};
 
 	/** Synchronously readable note cache for the prompt section; the section
 	 *  text provider must be sync, so it renders from this snapshot and every
@@ -423,22 +512,74 @@ export function apply(ctx, config) {
 		};
 	};
 
+	/** Confirm one pending candidate and move it into durable memory. */
+	const confirmPending = async (id) => {
+		const idx = pendingCandidates.findIndex((c) => c.id === id);
+		if (idx === -1) return { ok: false, error: "not_found" };
+		const candidate = pendingCandidates[idx];
+		const note = await memory.add({ text: candidate.text, category: candidate.category });
+		pendingCandidates.splice(idx, 1);
+		await refreshNotes();
+		await persistState();
+		return { ok: true, note };
+	};
+
+	/** Ignore one pending candidate. */
+	const ignorePending = async (id) => {
+		const before = pendingCandidates.length;
+		pendingCandidates = pendingCandidates.filter((c) => c.id !== id);
+		if (pendingCandidates.length < before) await persistState();
+		return { ok: pendingCandidates.length < before };
+	};
+
 	/** One cached overview shared by the route, refreshed on change and by a
 	 *  slow wall clock so a long-lived page never sees stale facts. */
 	let cache = { at: 0, value: undefined, pending: undefined };
 	const overview = async () => {
 		if (cache.value !== undefined && Date.now() - cache.at < 15000) return cache.value;
-		cache.pending ??= collectOverview(ctx, options, memory, log)
+		cache.pending ??= collectOverview(ctx, options, memory, log, pendingCandidates)
 			.then((value) => {
 				cache = { at: Date.now(), value, pending: undefined };
 				return value;
 			})
 			.catch(() => {
 				cache.pending = undefined;
-				return collectOverview(ctx, options, memory, log);
+				return collectOverview(ctx, options, memory, log, pendingCandidates);
 			});
 		return cache.pending;
 	};
+
+	/** First-time onboarding: give users an immediate "magic moment". */
+	const runOnboarding = async () => {
+		try {
+			const state = await initState();
+			if (state.onboarded === true) return;
+			const notes = await memory.list();
+			if (notes.length > 0) {
+				await persistState({ onboarded: true });
+				return;
+			}
+			await memory.add({ text: "用户偏好用中文交流。", category: "preference" });
+			await refreshNotes();
+			await persistState({ onboarded: true });
+			await deliver(
+				{
+					title: "🧠 DSH 宝已就绪",
+					body: "我会记住你确认过的信息，下次不用重复说。试试对我说：'记住我偏好用中文'。"
+				},
+				options,
+				log
+			);
+			log("onboarding completed");
+		} catch (error) {
+			log(`onboarding failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	};
+	if (options.onboardingEnabled) {
+		void runOnboarding();
+	} else {
+		void initState();
+	}
 
 	/** The JSON route the panel reads and the digest check can trigger. */
 	ctx.effect(() => {
@@ -452,6 +593,28 @@ export function apply(ctx, config) {
 			try {
 				if (path === `${options.routePath}/overview`) {
 					writeJson(res, { ok: true, value: await overview() });
+					return;
+				}
+				if (path === `${options.routePath}/pending-memories`) {
+					writeJson(res, { ok: true, value: pendingCandidates.slice(0, options.pendingMemoryMax) });
+					return;
+				}
+				if (path === `${options.routePath}/confirm-pending` && req.method === "POST") {
+					let body = "";
+					for await (const chunk of req) body += chunk;
+					const { id } = JSON.parse(body);
+					const result = await confirmPending(id);
+					cache = { at: 0, value: undefined, pending: undefined };
+					writeJson(res, result);
+					return;
+				}
+				if (path === `${options.routePath}/ignore-pending` && req.method === "POST") {
+					let body = "";
+					for await (const chunk of req) body += chunk;
+					const { id } = JSON.parse(body);
+					const result = await ignorePending(id);
+					cache = { at: 0, value: undefined, pending: undefined };
+					writeJson(res, result);
 					return;
 				}
 				writeJson(res, { ok: false, error: { code: "not_found", message: `unknown endpoint ${path}` } }, 404);
@@ -477,7 +640,7 @@ export function apply(ctx, config) {
 		log(`digest scheduled at ${options.digestTime} (${Math.round(fireAt - Date.now())}ms from now)`);
 		const fire = async () => {
 			try {
-				const value = await collectOverview(ctx, options, memory, log);
+				const value = await collectOverview(ctx, options, memory, log, pendingCandidates);
 				const notification = composeDigest(value, options);
 				const channel = await deliver(notification, options, log);
 				log(`digest delivered through ${channel}`);
@@ -511,9 +674,19 @@ export function apply(ctx, config) {
 						order: 300,
 						interpolate: false,
 						text: () => {
-							if (cachedNotes.length === 0) return "";
-							const lines = cachedNotes.slice(0, options.memoryInjectLimit).map((note) => `- [${note.category}] ${truncate(note.text, options.memoryNoteMaxChars)}`);
-							return `主人的长期记忆（dsh-bao 自动维护，跨会话有效）：\n${lines.join("\n")}\n以上是用户偏好、项目事实与决策的持久记录，回答与决策时优先遵循；与当前请求冲突时以当前请求为准。`;
+							const parts = [];
+							if (cachedNotes.length > 0) {
+								const lines = cachedNotes.slice(0, options.memoryInjectLimit).map((note) => `- [${note.category}] ${truncate(note.text, options.memoryNoteMaxChars)}`);
+								parts.push(`主人的长期记忆（dsh-bao 自动维护，跨会话有效）：\n${lines.join("\n")}\n以上是用户偏好、项目事实与决策的持久记录，回答与决策时优先遵循；与当前请求冲突时以当前请求为准。`);
+							}
+							if (pendingCandidates.length > 0) {
+								const lines = pendingCandidates.slice(0, 5).map((c) => `- [${c.category}] ${truncate(c.text, options.memoryNoteMaxChars)}`);
+								parts.push(`以下候选记忆等待用户确认。如果用户在后续对话中确认了某条，调用 bao_confirm_memory；如果明确拒绝，调用 bao_ignore_memory；否则保持 pending 状态，不要在回复中假装它们已经是正式记忆：\n${lines.join("\n")}`);
+							}
+							if (options.autoExtractMemory) {
+								parts.push(`自动记忆提取已启用。当对话中出现值得跨会话保留的偏好、项目、决策或事实，而用户没有明确说"记住"时，你可以调用 bao_extract_memory 把候选记下来，让用户在面板里一键确认。不要记录普通对话内容。`);
+							}
+							return parts.join("\n\n");
 						}
 					}),
 				"dsh-bao: memory context"
@@ -582,7 +755,7 @@ export function apply(ctx, config) {
 					toolCtx.tools.register({
 						name: "bao_status",
 						description:
-							"查看当前工作状态速览：活跃的定时任务（含规则与下次触发时间）和最近推进的会话。回答“最近在忙什么 / 有哪些待办提醒”时先调用它。",
+							"查看当前工作状态速览：活跃的定时任务（含规则与下次触发时间）、最近推进的会话、长期记忆概览和待确认候选记忆。回答“最近在忙什么 / 有哪些待办提醒”时先调用它。",
 						parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
 						output: {
 							schema: { type: "string" },
@@ -603,6 +776,14 @@ export function apply(ctx, config) {
 							if (snapshot.recentSessions.length > 0) {
 								lines.push("最近推进的会话：");
 								for (const row of snapshot.recentSessions) lines.push(`  - ${row.title}`);
+							}
+							if (snapshot.memory.count > 0) {
+								lines.push(`长期记忆 ${snapshot.memory.count} 条，最新：`);
+								for (const note of snapshot.memory.latest) lines.push(`  - [${note.category}] ${note.text}`);
+							}
+							if (snapshot.pendingMemories.length > 0) {
+								lines.push(`候选记忆 ${snapshot.pendingMemories.length} 条等你确认：`);
+								for (const c of snapshot.pendingMemories) lines.push(`  - [${c.category}] ${c.text}`);
 							}
 							return lines.join("\n");
 						}
@@ -700,6 +881,114 @@ export function apply(ctx, config) {
 						}
 					})
 				);
+				if (options.autoExtractMemory) {
+					registrations.push(
+						toolCtx.tools.register({
+							name: "bao_extract_memory",
+							description:
+								"从当前对话中自动提取值得跨会话保留的候选记忆。当对话中出现偏好、项目、决策或事实，而用户没有明确说'记住'时调用。每个候选需要 text 和 category，存入待确认列表，用户稍后在面板或工具中一键确认。不要记录普通闲聊内容。",
+							parameters: {
+								type: "object",
+								properties: {
+									candidates: {
+										type: "array",
+										items: {
+											type: "object",
+											properties: {
+												text: { type: "string", description: "候选记忆内容，一句话，第三人称。" },
+												category: { type: "string", enum: NOTE_CATEGORIES, description: "类别：preference/project/decision/fact/other" }
+											},
+											required: ["text", "category"],
+											additionalProperties: false
+										}
+									}
+								},
+								required: ["candidates"],
+								additionalProperties: false
+							},
+							output: {
+								schema: { type: "string" },
+								render: (_args, value) => [{ type: "text", text: value }]
+							},
+							async execute(args) {
+								const list = Array.isArray(args?.candidates) ? args.candidates : [];
+								if (list.length === 0) return "没有提供候选记忆。";
+								const now = Date.now();
+								let added = 0;
+								for (const item of list) {
+									const text = typeof item?.text === "string" ? item.text.trim() : "";
+									const category = NOTE_CATEGORIES.includes(item?.category) ? item.category : "other";
+									if (text === "") continue;
+									if (pendingCandidates.some((c) => c.text === text)) continue;
+									pendingCandidates.push({ id: `bao-pending-${randomUUID()}`, text, category, createdAt: now });
+									if (pendingCandidates.length > options.pendingMemoryMax) pendingCandidates.shift();
+									added++;
+								}
+								if (added === 0) return "没有新的候选记忆需要保存。";
+								cache = { at: 0, value: undefined, pending: undefined };
+								await persistState();
+								void deliver(
+									{
+										title: "🧠 发现候选记忆",
+										body: `DSH 宝从刚才的对话中提取了 ${added} 条候选记忆，打开面板可以一键确认或忽略。`
+									},
+									options,
+									log
+								);
+								return `已保存 ${added} 条候选记忆，等待你确认。`;
+							}
+						})
+					);
+					registrations.push(
+						toolCtx.tools.register({
+							name: "bao_confirm_memory",
+							description: "确认一条候选记忆，将其转为正式长期记忆。",
+							parameters: {
+								type: "object",
+								properties: {
+									id: { type: "string", description: "候选记忆 id" }
+								},
+								required: ["id"],
+								additionalProperties: false
+							},
+							output: {
+								schema: { type: "string" },
+								render: (_args, value) => [{ type: "text", text: value }]
+							},
+							async execute(args) {
+								const id = typeof args?.id === "string" ? args.id : "";
+								if (id === "") return "需要提供候选记忆 id。";
+								const result = await confirmPending(id);
+								if (!result.ok) return "没有找到这条候选记忆。";
+								return `已确认并加入长期记忆（${result.note.category}）：${truncate(result.note.text, 80)}`;
+							}
+						})
+					);
+					registrations.push(
+						toolCtx.tools.register({
+							name: "bao_ignore_memory",
+							description: "忽略一条候选记忆，将其从待确认列表中移除。",
+							parameters: {
+								type: "object",
+								properties: {
+									id: { type: "string", description: "候选记忆 id" }
+								},
+								required: ["id"],
+								additionalProperties: false
+							},
+							output: {
+								schema: { type: "string" },
+								render: (_args, value) => [{ type: "text", text: value }]
+							},
+							execute(args) {
+								const id = typeof args?.id === "string" ? args.id : "";
+								if (id === "") return "需要提供候选记忆 id。";
+								const result = ignorePending(id);
+								return result.ok ? "已忽略。" : "没有找到这条候选记忆。";
+							}
+						})
+					);
+				}
 			}
 			return () => {
 				for (const off of registrations) off();
