@@ -1,5 +1,9 @@
 # dsh-bao · DSH 宝
 
+[![awesome-dsh-plugin](https://img.shields.io/badge/awesome--dsh--plugin-listed-blue)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![GitHub Release](https://img.shields.io/github/v/release/milestone-17/dsh-bao)](https://github.com/milestone-17/dsh-bao/releases/latest)
+
+
 A TRAE-宝-style personal assistant for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), packaged as one installable plugin bundle.
 
 **TRAE 宝做了什么？** 它长期跟着你的工作：跨项目理解你的任务、记住你的偏好、定时向你汇报、把需要你判断的事带回给你。`dsh-bao` 把同样的体验带进 DSH —— 但完全基于 Harness 的公开插件 API，不碰私有实现：
